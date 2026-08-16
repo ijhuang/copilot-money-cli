@@ -52,30 +52,32 @@ pub(super) fn render_output<T: Serialize + TableRow>(
             println!("{s}");
             Ok(())
         }
-        OutputFormat::Table => {
-            let mut table = Table::new();
-            table
-                .load_preset(UTF8_FULL)
-                .apply_modifier(UTF8_ROUND_CORNERS)
-                .set_content_arrangement(ContentArrangement::DynamicFullWidth);
-
-            if let Some(w) = terminal_width() {
-                table.set_width(w);
-            }
-
-            table.set_header(ComfyRow::from(
-                T::HEADERS
-                    .iter()
-                    .map(|h| header_cell(cli, h))
-                    .collect::<Vec<_>>(),
-            ));
-            for row in rows {
-                table.add_row(ComfyRow::from(row.cells()));
-            }
-            println!("{table}");
-            Ok(())
-        }
+        OutputFormat::Table => render_table(cli, rows),
     }
+}
+
+pub(super) fn render_table<T: TableRow>(cli: &Cli, rows: Vec<T>) -> anyhow::Result<()> {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS)
+        .set_content_arrangement(ContentArrangement::DynamicFullWidth);
+
+    if let Some(w) = terminal_width() {
+        table.set_width(w);
+    }
+
+    table.set_header(ComfyRow::from(
+        T::HEADERS
+            .iter()
+            .map(|h| header_cell(cli, h))
+            .collect::<Vec<_>>(),
+    ));
+    for row in rows {
+        table.add_row(ComfyRow::from(row.cells()));
+    }
+    println!("{table}");
+    Ok(())
 }
 
 pub(super) fn header_cell(cli: &Cli, text: &str) -> Cell {

@@ -16,6 +16,10 @@ pub const BUDGETS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/graphql/Budgets.graphql"
 ));
+pub const ACCOUNTS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/graphql/Accounts.graphql"
+));
 
 pub const BULK_EDIT_TRANSACTIONS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
