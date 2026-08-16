@@ -1,0 +1,64 @@
+---
+source: tests/cli_snapshots.rs
+assertion_line: 208
+expression: "run(&[\"--output\", \"json\", \"accounts\", \"list\"])"
+---
+[
+  {
+    "id": "acct_checking",
+    "name": "Daily Checking",
+    "type": "CASH",
+    "subType": "CHECKING",
+    "balance": 1234.5,
+    "limit": null,
+    "liveBalance": 1234.5,
+    "latestBalanceUpdate": 1760000000000,
+    "hasLiveBalance": true,
+    "hasHistoricalUpdates": true,
+    "isUserHidden": false,
+    "isUserClosed": false,
+    "isManual": false,
+    "institutionId": "inst_bank",
+    "itemId": "item_checking",
+    "mask": "1234",
+    "color": "BLUE"
+  },
+  {
+    "id": "acct_stale_card",
+    "name": "Stale Credit Card",
+    "type": "CREDIT",
+    "subType": "CREDIT_CARD",
+    "balance": -987.65,
+    "limit": 5000,
+    "liveBalance": -987.65,
+    "latestBalanceUpdate": 1700000000000,
+    "hasLiveBalance": true,
+    "hasHistoricalUpdates": true,
+    "isUserHidden": false,
+    "isUserClosed": false,
+    "isManual": false,
+    "institutionId": "inst_card",
+    "itemId": "item_stale_card",
+    "mask": "9876",
+    "color": "RED"
+  },
+  {
+    "id": "acct_manual",
+    "name": "Manual Savings",
+    "type": "CASH",
+    "subType": "SAVINGS",
+    "balance": "250.00",
+    "limit": null,
+    "liveBalance": null,
+    "latestBalanceUpdate": null,
+    "hasLiveBalance": false,
+    "hasHistoricalUpdates": false,
+    "isUserHidden": false,
+    "isUserClosed": false,
+    "isManual": true,
+    "institutionId": null,
+    "itemId": null,
+    "mask": null,
+    "color": "GRAY"
+  }
+]
