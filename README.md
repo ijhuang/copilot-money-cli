@@ -99,8 +99,10 @@ By default, commands are **read-only**. Any write action either:
 
 ### Accounts
 
-- `copilot accounts list` — list accounts enriched with institution metadata.
-- `copilot accounts show <id>` — show one account with institution name, color, and logo URLs.
+- `copilot accounts list` — list accounts with balance-sync metadata.
+  - By default, user-hidden and user-closed accounts are omitted; pass `--all` to include them.
+  - Table columns: `id`, `name`, `balance`, `latest_balance_update` (raw Unix ms), `live`.
+  - JSON output includes all captured account fields, including raw `latestBalanceUpdate`.
 
 ### Recurring
 

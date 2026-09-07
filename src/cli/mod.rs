@@ -19,6 +19,7 @@ use crate::types::{
     CategoryId, RecurringFrequency, RecurringId, TagId, TransactionId, TransactionType,
 };
 
+mod accounts;
 mod auth;
 mod budgets;
 mod categories;
@@ -96,6 +97,10 @@ pub enum Command {
     Categories {
         #[command(subcommand)]
         cmd: CategoriesCmd,
+    },
+    Accounts {
+        #[command(subcommand)]
+        cmd: AccountsCmd,
     },
     Recurrings {
         #[command(subcommand)]
@@ -461,6 +466,18 @@ pub struct CategoriesListArgs {
     pub name_contains: Option<String>,
 }
 
+#[derive(Debug, Clone, Subcommand)]
+pub enum AccountsCmd {
+    List(AccountsListArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct AccountsListArgs {
+    /// Include user-hidden and user-closed accounts.
+    #[arg(long)]
+    pub all: bool,
+}
+
 #[derive(Debug, Clone, Args)]
 pub struct CategoriesCreateArgs {
     pub name: String,
@@ -621,6 +638,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
         Command::Auth { cmd } => auth::run_auth(&cli, &client, cmd.clone()),
         Command::Transactions { cmd } => run_transactions(&cli, &client, cmd.clone()),
         Command::Categories { cmd } => categories::run_categories(&cli, &client, cmd.clone()),
+        Command::Accounts { cmd } => accounts::run_accounts(&cli, &client, cmd.clone()),
         Command::Recurrings { cmd } => recurrings::run_recurrings(&cli, &client, cmd.clone()),
         Command::Tags { cmd } => tags::run_tags(&cli, &client, cmd.clone()),
         Command::Budgets { cmd } => budgets::run_budgets(&cli, &client, cmd.clone()),

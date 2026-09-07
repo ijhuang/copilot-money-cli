@@ -199,6 +199,21 @@ fn categories_list_json_snapshot() {
 }
 
 #[test]
+fn accounts_list_table_snapshot() {
+    insta::assert_snapshot!(run(&["accounts", "list"]));
+}
+
+#[test]
+fn accounts_list_json_snapshot() {
+    insta::assert_snapshot!(run(&["--output", "json", "accounts", "list"]));
+}
+
+#[test]
+fn accounts_list_all_table_snapshot() {
+    insta::assert_snapshot!(run(&["accounts", "list", "--all"]));
+}
+
+#[test]
 fn recurrings_list_table_snapshot() {
     insta::assert_snapshot!(run(&["recurrings", "list"]));
 }

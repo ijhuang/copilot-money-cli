@@ -152,6 +152,21 @@ impl CopilotClient {
         Ok(out)
     }
 
+    pub fn list_accounts(&self) -> anyhow::Result<Vec<Account>> {
+        let data = self.graphql("Accounts", ops::ACCOUNTS, json!({ "filter": null }))?;
+        let items = data
+            .pointer("/data/accounts")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| anyhow::anyhow!("unexpected Accounts response shape"))?;
+
+        let mut out = Vec::new();
+        for item in items {
+            let account: Account = serde_json::from_value(item.clone())?;
+            out.push(account);
+        }
+        Ok(out)
+    }
+
     pub fn list_budget_months(&self) -> anyhow::Result<Vec<BudgetMonth>> {
         let data = self.graphql("Budgets", ops::BUDGETS, json!({}))?;
         let histories = data
@@ -702,6 +717,38 @@ pub struct Category {
     pub icon: Option<Icon>,
     #[serde(rename = "childCategories")]
     pub child_categories: Option<Vec<Category>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Account {
+    pub id: AccountId,
+    pub name: Option<String>,
+    #[serde(rename = "type")]
+    pub account_type: Option<String>,
+    #[serde(rename = "subType")]
+    pub sub_type: Option<String>,
+    pub balance: Option<Value>,
+    pub limit: Option<Value>,
+    #[serde(rename = "liveBalance")]
+    pub live_balance: Option<Value>,
+    #[serde(rename = "latestBalanceUpdate")]
+    pub latest_balance_update: Option<Value>,
+    #[serde(rename = "hasLiveBalance")]
+    pub has_live_balance: Option<bool>,
+    #[serde(rename = "hasHistoricalUpdates")]
+    pub has_historical_updates: Option<bool>,
+    #[serde(rename = "isUserHidden")]
+    pub is_user_hidden: Option<bool>,
+    #[serde(rename = "isUserClosed")]
+    pub is_user_closed: Option<bool>,
+    #[serde(rename = "isManual")]
+    pub is_manual: Option<bool>,
+    #[serde(rename = "institutionId")]
+    pub institution_id: Option<String>,
+    #[serde(rename = "itemId")]
+    pub item_id: Option<ItemId>,
+    pub mask: Option<String>,
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
