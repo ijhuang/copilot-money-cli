@@ -1219,31 +1219,25 @@ fn resolve_transactions_by_ids(
 ) -> anyhow::Result<Vec<Transaction>> {
     let want: HashSet<TransactionId> = ids.iter().cloned().collect();
     let mut found: HashMap<TransactionId, Transaction> = HashMap::new();
-
-    let mut cursor: Option<String> = None;
     let mut scanned = 0usize;
-    let max_pages = 200usize; // safety guard; use `transactions list --all` if you need more context.
+    let mut last_err: Option<anyhow::Error> = None;
 
-    for _ in 0..max_pages {
-        let page = client.list_transactions_page(200, cursor.clone(), None, None)?;
-        let has_next = page.page_info.has_next_page.unwrap_or(false);
-        cursor = page.page_info.end_cursor.clone();
-        scanned += page.transactions.len();
-
-        for t in page.transactions {
-            if want.contains(&t.id) {
-                found.insert(t.id.clone(), t);
-            }
-        }
-
+    // The unfiltered feed is the natural first pass, but the API intermittently
+    // fails deep pagination on it while the reviewed/unreviewed-filtered feeds
+    // still page cleanly. Fall through the filtered feeds if anything is left.
+    let filters: [Option<serde_json::Value>; 3] = [
+        None,
+        Some(serde_json::json!({ "isReviewed": false })),
+        Some(serde_json::json!({ "isReviewed": true })),
+    ];
+    for filter in filters {
         if found.len() == want.len() {
             break;
         }
-
-        if has_next {
-            continue;
+        match scan_transactions_for_ids(client, filter, &want, &mut found) {
+            Ok(n) => scanned += n,
+            Err(e) => last_err = Some(e),
         }
-        break;
     }
 
     let mut missing = Vec::new();
@@ -1256,14 +1250,47 @@ fn resolve_transactions_by_ids(
     }
 
     if !missing.is_empty() {
+        let suffix = match last_err {
+            Some(e) => format!(" (last scan error: {e})"),
+            None => String::new(),
+        };
         anyhow::bail!(
-            "could not resolve {} transaction ids after scanning {scanned} transactions: {:?}",
+            "could not resolve {} transaction ids after scanning {scanned} transactions{suffix}: {:?}",
             missing.len(),
             missing
         );
     }
 
     Ok(ordered)
+}
+
+fn scan_transactions_for_ids(
+    client: &CopilotClient,
+    filter: Option<serde_json::Value>,
+    want: &HashSet<TransactionId>,
+    found: &mut HashMap<TransactionId, Transaction>,
+) -> anyhow::Result<usize> {
+    let mut cursor: Option<String> = None;
+    let mut scanned = 0usize;
+    let max_pages = 200usize; // safety guard; use `transactions list --all` if you need more context.
+
+    for _ in 0..max_pages {
+        let page = client.list_transactions_page(200, cursor.clone(), filter.clone(), None)?;
+        let has_next = page.page_info.has_next_page.unwrap_or(false);
+        cursor = page.page_info.end_cursor.clone();
+        scanned += page.transactions.len();
+
+        for t in page.transactions {
+            if want.contains(&t.id) {
+                found.insert(t.id.clone(), t);
+            }
+        }
+
+        if found.len() == want.len() || !has_next {
+            break;
+        }
+    }
+    Ok(scanned)
 }
 
 #[derive(Debug, Serialize)]
