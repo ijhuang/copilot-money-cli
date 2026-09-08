@@ -223,6 +223,9 @@ pub enum TransactionField {
 
 #[derive(Debug, Clone, Args)]
 pub struct TransactionsListArgs {
+    /// Target number of rows. The API caps its own page size, so this pages
+    /// internally until the target is met and may slightly overshoot it.
+    /// Ignored when `--pages` or `--all` is given.
     #[arg(long, default_value_t = 25)]
     pub limit: usize,
 
@@ -230,7 +233,7 @@ pub struct TransactionsListArgs {
     #[arg(long)]
     pub after: Option<String>,
 
-    /// Number of pages to fetch (each page is `--limit`).
+    /// Number of pages to fetch (page size is set by the API, ~25).
     #[arg(long, default_value_t = 1)]
     pub pages: usize,
 
@@ -288,6 +291,9 @@ pub struct TransactionsListArgs {
 pub struct TransactionsSearchArgs {
     pub query: String,
 
+    /// Target number of rows. The API caps its own page size, so this pages
+    /// internally until the target is met and may slightly overshoot it.
+    /// Ignored when `--pages` or `--all` is given.
     #[arg(long, default_value_t = 200)]
     pub limit: usize,
 
@@ -295,7 +301,7 @@ pub struct TransactionsSearchArgs {
     #[arg(long)]
     pub after: Option<String>,
 
-    /// Number of pages to fetch (each page is `--limit`).
+    /// Number of pages to fetch (page size is set by the API, ~25).
     #[arg(long, default_value_t = 1)]
     pub pages: usize,
 
@@ -823,7 +829,7 @@ fn run_transactions(cli: &Cli, client: &CopilotClient, cmd: TransactionsCmd) -> 
                 resolve_category_id(client, args.category_id.as_ref(), args.category.as_deref())?;
             let filter = build_transactions_filter(args.reviewed, args.unreviewed);
             let sort = sort_to_graphql(args.sort);
-            let (items, page_info) = fetch_transactions_with_filter_sort(
+            let (items, page_info, partial) = fetch_transactions_with_filter_sort(
                 client,
                 args.limit,
                 args.after.clone(),
@@ -848,6 +854,7 @@ fn run_transactions(cli: &Cli, client: &CopilotClient, cmd: TransactionsCmd) -> 
                 page_info,
                 args.page_info,
                 &args.fields,
+                partial,
             )
         }
         TransactionsCmd::Search(args) => {
@@ -855,7 +862,7 @@ fn run_transactions(cli: &Cli, client: &CopilotClient, cmd: TransactionsCmd) -> 
                 resolve_category_id(client, args.category_id.as_ref(), args.category.as_deref())?;
             let filter = build_transactions_filter(args.reviewed, args.unreviewed);
             let sort = sort_to_graphql(args.sort);
-            let (items, page_info) = fetch_transactions_with_filter_sort(
+            let (items, page_info, partial) = fetch_transactions_with_filter_sort(
                 client,
                 args.limit,
                 args.after.clone(),
@@ -880,6 +887,7 @@ fn run_transactions(cli: &Cli, client: &CopilotClient, cmd: TransactionsCmd) -> 
                 page_info,
                 args.page_info,
                 &args.fields,
+                partial,
             )
         }
         TransactionsCmd::Show(args) => {
@@ -1334,6 +1342,7 @@ fn render_transactions_updated(cli: &Cli, items: Vec<Transaction>) -> anyhow::Re
             let out = TransactionsJsonOutput {
                 transactions: items,
                 page_info: None,
+                partial: false,
             };
             let s = serde_json::to_string_pretty(&out)?;
             println!("{s}");
@@ -1346,10 +1355,20 @@ fn render_transactions_updated(cli: &Cli, items: Vec<Transaction>) -> anyhow::Re
 #[derive(Debug, Serialize)]
 struct TransactionsJsonOutput {
     transactions: Vec<Transaction>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "pageInfo", skip_serializing_if = "Option::is_none")]
     page_info: Option<PageInfo>,
+    /// Set when pagination stopped early on an API error; the rows above are
+    /// incomplete. Omitted entirely on a complete result.
+    #[serde(skip_serializing_if = "is_false")]
+    partial: bool,
 }
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+/// Returns the rows, the last `PageInfo` seen, and whether pagination stopped
+/// early on an API error (partial result).
 fn fetch_transactions_with_filter_sort(
     client: &CopilotClient,
     page_size: usize,
@@ -1358,20 +1377,69 @@ fn fetch_transactions_with_filter_sort(
     all: bool,
     filter: Option<serde_json::Value>,
     sort: Option<serde_json::Value>,
-) -> anyhow::Result<(Vec<Transaction>, PageInfo)> {
+) -> anyhow::Result<(Vec<Transaction>, PageInfo, bool)> {
     let mut out = Vec::new();
     let mut cursor = after;
     let max_pages = if all { usize::MAX } else { pages.max(1) };
 
-    let mut last_page_info: Option<PageInfo> = None;
+    // The API ignores `first` and caps pages at its own size (25 as of
+    // 2026-09), so `--limit 200` used to return 25 rows. Treat `--limit` as a
+    // row target and keep paging until it is met. `--pages`/`--all` are
+    // explicit page controls and keep their existing meaning.
+    let fill_to_limit = !all && pages <= 1;
 
-    for _ in 0..max_pages {
-        let page = client.list_transactions_page(
+    let mut last_page_info: Option<PageInfo> = None;
+    let mut partial = false;
+    let mut fetched_pages = 0usize;
+
+    loop {
+        let want_more = if fetched_pages == 0 || all {
+            true
+        } else if fill_to_limit {
+            out.len() < page_size
+        } else {
+            fetched_pages < max_pages
+        };
+        if !want_more {
+            break;
+        }
+
+        let page = match client.list_transactions_page(
             page_size,
             cursor.clone(),
             filter.clone(),
             sort.clone(),
-        )?;
+        ) {
+            Ok(page) => page,
+            // The deep tail of the feed 500s intermittently; retry once before
+            // giving up on an otherwise good walk.
+            Err(_) => match client.list_transactions_page(
+                page_size,
+                cursor.clone(),
+                filter.clone(),
+                sort.clone(),
+            ) {
+                Ok(page) => page,
+                Err(err) => {
+                    if fetched_pages == 0 {
+                        return Err(err);
+                    }
+                    eprintln!(
+                        "warning: pagination stopped after {fetched_pages} page(s), \
+                         {} row(s) collected: {err}",
+                        out.len()
+                    );
+                    eprintln!(
+                        "warning: results are PARTIAL. Re-run with --pages {fetched_pages} \
+                         for a clean fetch of the same range."
+                    );
+                    partial = true;
+                    break;
+                }
+            },
+        };
+
+        fetched_pages += 1;
         cursor = page.page_info.end_cursor.clone();
         last_page_info = Some(page.page_info);
         out.extend(page.transactions);
@@ -1393,6 +1461,7 @@ fn fetch_transactions_with_filter_sort(
             has_previous_page: None,
             start_cursor: None,
         }),
+        partial,
     ))
 }
 
@@ -1559,15 +1628,24 @@ fn render_transactions_output(
     page_info: PageInfo,
     include_page_info: bool,
     fields: &[TransactionField],
+    partial: bool,
 ) -> anyhow::Result<()> {
+    // A partial result still prints every row fetched, but must not look like a
+    // clean run: callers piping JSON need a non-zero exit to notice.
+    let partial_err =
+        || anyhow::anyhow!("partial result: pagination stopped early (see warnings above)");
     match cli.output {
         OutputFormat::Json => {
             let out = TransactionsJsonOutput {
                 transactions: items,
                 page_info: include_page_info.then_some(page_info),
+                partial,
             };
             let s = serde_json::to_string_pretty(&out)?;
             println!("{s}");
+            if partial {
+                return Err(partial_err());
+            }
             Ok(())
         }
         OutputFormat::Table => {
@@ -1577,6 +1655,9 @@ fn render_transactions_output(
                 None
             };
             render_transactions_table(cli, &items, fields, cats.as_ref())?;
+            if partial {
+                return Err(partial_err());
+            }
             if include_page_info {
                 render_output(
                     cli,
