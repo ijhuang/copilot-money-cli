@@ -40,7 +40,7 @@ expression: "run(&[\"--output\", \"json\", \"transactions\", \"list\", \"--page-
       ]
     }
   ],
-  "page_info": {
+  "pageInfo": {
     "endCursor": "c2",
     "hasNextPage": false,
     "hasPreviousPage": false,
